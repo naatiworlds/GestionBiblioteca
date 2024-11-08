@@ -1,77 +1,90 @@
 package daw2a.gestionbiblioteca.controllers;
 
 import daw2a.gestionbiblioteca.entities.Usuario;
-import daw2a.gestionbiblioteca.repositories.UsuarioRepository;
 import daw2a.gestionbiblioteca.services.UsuarioService;
 import jakarta.validation.Valid;
+import org.apache.tomcat.util.http.parser.HttpParser;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.NoSuchElementException;
+
 @RestController
 @RequestMapping("/usuarios")
 public class UsuarioController {
-    private final UsuarioRepository usuarioRepository;
+    private final UsuarioService usuarioService;
     private final PasswordEncoder passwordEncoder;
+    private final ConcurrentMapCacheManager cacheManager;
 
     @Autowired
-    public UsuarioController(UsuarioRepository usuarioRepository, PasswordEncoder passwordEncoder) {
-        this.usuarioRepository = usuarioRepository;
+    public UsuarioController(UsuarioService usuarioService, PasswordEncoder passwordEncoder, ConcurrentMapCacheManager cacheManager) {
+        this.usuarioService = usuarioService;
         this.passwordEncoder = passwordEncoder;
+        this.cacheManager = cacheManager;
     }
 
+
+    // Listar todos los usuarios con paginación y filtros opcionales
     @GetMapping
-    public ResponseEntity<Page<Usuario>> listarUsuarios(@RequestParam(required = false)String nombre,
-                                                        Pageable pageable){
-        if (nombre != null) {
-            return ResponseEntity.ok(usuarioRepository.findByNombreContainingIgnoreCase(nombre,pageable));
-        }
-        return ResponseEntity.ok(usuarioRepository.findAll(pageable));
+    public ResponseEntity<Page<Usuario>> listarUsuarios(@RequestParam(required = false) String nombre, Pageable pageable) {
+        Page<Usuario> usuario = usuarioService.listarUsuarios(nombre, pageable);
+        return ResponseEntity.ok(usuario);
     }
 
-    //obtener los detalles de un autor especifico
+    // Obtener los detalles de un usuario específico
     @GetMapping("/{id}")
-    public ResponseEntity<Usuario> obtenerUsuario(@PathVariable Long id){//asui indicamos que es una variable del path o ruta, en este caso /autores/{id}
-        return usuarioRepository.findById(id)
-                .map(ResponseEntity::ok) // si lo encuentra para aqui
-                .orElse(ResponseEntity.notFound().build()); // si no lo encuentra devuelve un notFound
-    }
-    @GetMapping("/me")
-    public ResponseEntity<ResponseEntity<Usuario>>obtenerPerfil(@RequestParam("email") String email){
-        return ResponseEntity.ok(usuarioRepository.findUsuarioByEmail(email)
-                    .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build())
-        );
+    public ResponseEntity<Usuario> obtenerUsuario(@PathVariable Long id) {
+        try {
+            Usuario usuario = usuarioService.obtenerUsuario(id)
+                    .orElseThrow(()-> new NoSuchElementException("Usuario no encontrado con id " + id));
+            return ResponseEntity.ok(usuario);
+        }catch (NoSuchElementException ex){
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
     }
 
     @PostMapping
-    public ResponseEntity<Usuario> crearUsuario(@RequestBody @Valid Usuario usuario){
+    public ResponseEntity<Usuario> registrarUsuario(@RequestBody @Valid Usuario usuario) {
         usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
-        return ResponseEntity.ok(usuarioRepository.save(usuario));
+        Usuario nuevoUsuario = usuarioService.registarUsuario(usuario);
+        return ResponseEntity.status(HttpStatus.CREATED).body(nuevoUsuario);
     }
 
-    //Actualizar un autor
+    @GetMapping("/me")
+    public ResponseEntity<Usuario> obtenerMiPerfil(@RequestParam("email") String email) {
+        try {
+            Usuario usuario = usuarioService.obtenerMiPerfil(email)
+                    .orElseThrow(()-> new NoSuchElementException("Usuario no encontrado con email " + email));
+            return ResponseEntity.ok(usuario);
+        } catch (NoSuchElementException ex){
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<Usuario> actualizarUsuario(@PathVariable Long id,
-                                                     @RequestBody Usuario usuarioActualizado){
-        return usuarioRepository.findById(id).map(usuario -> {
-            usuario.setNombre(usuarioActualizado.getNombre());
-            usuario.setEmail(usuarioActualizado.getEmail());
-            usuario.setPassword(usuarioActualizado.getPassword());
-            usuario.setRol(usuarioActualizado.getRol());
-            return ResponseEntity.ok(usuarioRepository.save(usuario));
-        }).orElse(ResponseEntity.notFound().build());
+                                                     @RequestBody Usuario usuarioActualizado) {
+        try {
+            Usuario usuario = usuarioService.actualizarUsuario(id, usuarioActualizado);
+            return ResponseEntity.ok(usuario);
+        } catch (NoSuchElementException ex){
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
     }
 
-    //Eliminar autor
     @DeleteMapping("/{id}")
-    public ResponseEntity eliminarAutor(@PathVariable Long id){
-        return usuarioRepository.findById(id).map(autor -> {
-            usuarioRepository.delete(autor);
+    public ResponseEntity<?> eliminarUsuario(@PathVariable Long id) {
+        try {
+            usuarioService.eliminarUsuario(id);
             return ResponseEntity.noContent().build();
-        }).orElse(ResponseEntity.notFound().build());
+        } catch (NoSuchElementException ex){
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
     }
 }

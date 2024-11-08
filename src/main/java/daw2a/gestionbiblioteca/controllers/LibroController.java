@@ -2,80 +2,80 @@ package daw2a.gestionbiblioteca.controllers;
 
 import daw2a.gestionbiblioteca.entities.Libro;
 import daw2a.gestionbiblioteca.repositories.LibroRepository;
-import jakarta.validation.Valid;
+import daw2a.gestionbiblioteca.services.LibroService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import jakarta.validation.Valid;
+
+import java.util.NoSuchElementException;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/libros")
 public class LibroController {
 
-    private final LibroRepository libroRepository;
+    private final LibroService libroService;
 
-    public LibroController (LibroRepository libroRepository){
-        this.libroRepository = libroRepository;
+    @Autowired
+    public LibroController(LibroService libroService) {
+        this.libroService = libroService;
     }
 
+    //Listar todos los libros con paginación y filtros opcionales
     @GetMapping
-    public Page<Libro> listasLibros(
-            @RequestParam(required = false) String titulo,
-            @RequestParam(required = false) String genero,
-            Pageable pageable
-    ){
-        // get http://localhost:8080/api/libros?titulo=el&genero=terror&page=0
-        if(titulo != null && genero != null){
-            return libroRepository.findLibroByTituloContainingIgnoreCaseAndGeneroContainingIgnoreCase(titulo, genero, pageable);
-        }else if(titulo != null){
-            return libroRepository.findLibroByTituloContainingIgnoreCase(titulo, pageable);
-        }else if(genero != null){
-            return libroRepository.findLibroByGeneroContainingIgnoreCase(genero, pageable);
-        }else{
-            return libroRepository.findAll(pageable);
+    public ResponseEntity<Page<Libro>> listarLibros(@RequestParam(required = false) String titulo,
+                                    @RequestParam(required = false) String genero,
+                                    Pageable pageable){
+       Page<Libro> libros = libroService.listarLibros(titulo, genero, pageable);
+       return ResponseEntity.ok(libros);
+    }
+
+    // Obtener los detalles de un libro específico
+    @GetMapping("/{id}")
+    public ResponseEntity<Libro> obtenerLibro(@PathVariable Long id){
+        try {
+            Libro libro = libroService.obtenerLibro(id)
+                    .orElseThrow(() -> new NoSuchElementException("Libro no encontrado con id " + id));
+            return ResponseEntity.ok(libro);
+        } catch (NoSuchElementException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
         }
     }
 
-    // Obtener un libro por id
-    @GetMapping("/{id}")
-    public ResponseEntity<Libro> getLibro(@PathVariable Long id){
-        return libroRepository.findById(id)
-                .map(libro -> ResponseEntity.ok().body(libro))
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    // Crear un numero de libros
+    //Crear un nuevo libro (sólo bibliotecario)
     @PostMapping
-    public ResponseEntity<Libro> createLibro(@RequestBody @Valid Libro libro){
-        return ResponseEntity.ok(libroRepository.save(libro));
+    public ResponseEntity<Libro> crearLibro(@RequestBody @Valid Libro libro)
+    {
+        Libro nuevoLibro = libroService.crearLibro(libro);
+        return ResponseEntity.status(HttpStatus.CREATED).body(nuevoLibro);
     }
-
-    // Actualizar un libro
+    // Actualizar un libro existente
     @PutMapping("/{id}")
-    public ResponseEntity<Libro> updateLibro(
-            @PathVariable Long id,
-            @RequestBody @Valid Libro libro
-    ){
-        return libroRepository.findById(id)
-                .map(libroData -> {
-                    libroData.setTitulo(libro.getTitulo());
-                    libroData.setGenero(libro.getGenero());
-                    libroData.setAñoPublicacion(libro.getAñoPublicacion());
-                    libroData.setEstado(libro.getEstado());
-                    libroData.setAutor(libro.getAutor());
-                    return ResponseEntity.ok(libroRepository.save(libroData));
-                }).orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<Libro> actualizarLibro(@PathVariable Long id,
+                                                 @RequestBody Libro libroActualizado) {
+        try {
+            Libro libro = libroService.actualizarLibro(id, libroActualizado);
+            return ResponseEntity.ok(libro);
+
+        } catch (NoSuchElementException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
     }
 
-    // Eliminar un libro
+    //Eliminar un libro
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteLibro(@PathVariable Long id){
-        return libroRepository.findById(id)
-                .map(libro -> {
-                    libroRepository.delete(libro);
-                    return ResponseEntity.noContent().<Void>build();
-                }).orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<?> eliminarLibro(@PathVariable Long id)
+    {
+        try{
+            libroService.borrarLibro(id);
+            return ResponseEntity.noContent().build();
+        } catch (NoSuchElementException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
     }
-
 }
